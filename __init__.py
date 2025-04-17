@@ -28,7 +28,7 @@ class TMITApp(AppConfig):
 	# TEAMS_MODE = 'Trackmania/TM_Teams_Online.Script.txt'
 	TEAMS_MODE = 'Modes/Trackmania/TM_Teams_Online_WinBonus.Script.txt'
 	TA_BASE_TIME = 60   # base seconds to play on a TA map
-	TA_TIME_DIVIDER = 4  # additional seconds: AT / divider * 60
+	TA_TIME_DIVIDER = 5  # additional seconds: AT / divider * 60
 
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
