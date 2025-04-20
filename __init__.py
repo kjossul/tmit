@@ -11,8 +11,7 @@ class State(IntEnum):
 	STOPPED = 0
 	STARTING = 1
 	TIME_ATTACK = 2
-	TEAMS_PREMATCH = 3
-	TEAMS_ROUNDS = 4
+	TEAMS = 3
 
 class TMITApp(AppConfig):
 	"""
@@ -40,11 +39,10 @@ class TMITApp(AppConfig):
 	async def on_start(self):
 		await super().on_start()
 		self.init()
-		# todo add commands for map queue selection and download
 		# Commands and permissions
 		await self.instance.permission_manager.register('start', 'Start TA + teams gamemode sequence', app=self, min_level=1)
 		await self.instance.permission_manager.register('balance', 'Balance teams', app=self, min_level=1)
-		await self.instance.permission_manager.register('teams', 'Prints the teams', app=self, min_level=1)
+		await self.instance.permission_manager.register('info', 'Returns information for debugging purposes', app=self, min_level=1)
 		await self.instance.permission_manager.register('end', 'Ends the gamemode equence', app=self, min_level=1)
 		await self.instance.command_manager.register(
 			Command(command='start', namespace=[self.NAMESPACE], aliases=['s'], target=self.start, perms='tmit:start', admin=True,
@@ -52,12 +50,13 @@ class TMITApp(AppConfig):
 					   # todo add arguments for 
 			Command(command='balance', namespace=[self.NAMESPACE], aliases=['b'], target=self.balance, perms='tmit:balance', admin=True,
 		   			description="Balances the teams based on previous TA results (useful if a player has to leave and teams need rebalancing)"),
-			Command(command='teams', namespace=[self.NAMESPACE], aliases=['t'], target=self.print_teams, perms='tmit:teams', admin=True,
-		   			description="Print the teams, in case manual handling is needed"),
+			Command(command='info', namespace=[self.NAMESPACE], aliases=['i'], target=self.info, perms='tmit:teams', admin=True,
+		   			description="Print app info for debug purposes"),
 			Command(command='end', namespace=[self.NAMESPACE], aliases=['e'], target=self.end, perms='tmit:end', admin=True,
 		   			description="Ends the gameplay sequence"),
 		)
 		# Register signals
+		self.context.signal.listen(mp_signals.player.player_enter_player_slot, self.player_enter_player_slot)
 		self.context.signals.listen(mp_signals.flow.match_start, self.match_start)
 		self.context.signals.listen(tm_signals.scores, self.scores)
 
@@ -65,36 +64,40 @@ class TMITApp(AppConfig):
 		logger.debug("Match manager started: Beginning Time Attack phase.")
 		self.init()
 		await self.instance.mode_manager.set_next_script(self.TIME_ATTACK_MODE)
-		# Dedimania save vreplay/ghost replays first.
-		if 'dedimania' in self.instance.apps.apps:
-			logger.debug('Saving dedimania (v)replays first!..')
-			if hasattr(self.instance.apps.apps['dedimania'], 'podium_start'):
-				try:
-					await self.instance.apps.apps['dedimania'].podium_start()
-				except Exception as e:
-					logger.exception(e)
 		await self.instance.gbx('RestartMap')
 		self.state = State.STARTING
 
 	async def balance(self, player, data, **kwargs):
-		logger.debug("Balancing teams")
-		if self.state < State.TEAMS_PREMATCH:
-			await self.instance.chat(f"Teams are not calculated yet (status: {self.state.name}).", player)
-		else:
-			await self.assign_players()
-			await self.print_teams(player, data, **kwargs)
+		if self.state != State.TEAMS:
+			await self.instance.chat(f"Match needs to be in teams mode in order to execute this command (current status: {self.state.name}).", player)
+			return
+		self.balance_teams()
+		gbx_calls = []
+		for player in self.blue:
+			gbx_calls.append(self.instance.gbx('ForcePlayerTeam', player['login'], 0))
+		for player in self.red:
+			gbx_calls.append(self.instance.gbx('ForcePlayerTeam', player['login'], 1))
+		await self.instance.gbx.multicall(*gbx_calls)
+		logger.debug("Teams rebalancing performed.")
 
-	async def print_teams(self, player, data, **kwargs):
-		logger.debug("Printing teams")
-		if self.state < State.TEAMS_PREMATCH:
-			await self.instance.chat(f"Teams are not calculated yet (status: {self.state.name}).", player)
-		else:
-			await self.instance.chat(f"$00fBlue$z: {', '.join(player['nickname'] for player in self.blue)}")
-			await self.instance.chat(f"$f00Red$z: {', '.join(player['nickname'] for player in self.red)}")
+	async def info(self, player, data, **kwargs):
+		if self.state != State.TEAMS:
+			await self.instance.chat(f"Plugin status: {self.state}.", player)
+			return
+		message = "Players: "
+		for i, player in enumerate(self.players):
+			if player['login'] in self.blue:
+				color = "$00f"
+			elif player['login'] in self.red:
+				color = "f00"
+			else:
+				color = ""
+			message += f"{i:2d} {color}{player['nickname']}$z ({player['time'] / 1000}) "
+		await self.instance.chat(message)
 
 	async def end(self, player, **kwargs):
 		self.state = State.STOPPED
-		await self.instance.chat("TMIT Match manager has been stopped.", player)
+		await self.instance.chat("Match aborted.", player)
 		logger.debug("Stopped match manager.")
 
 	async def match_start(self, **kwargs):
@@ -103,18 +106,25 @@ class TMITApp(AppConfig):
 			await self.set_ta_duration()
 			await self.instance.chat(self.TA_MESSAGE)
 			logger.debug(f"Match start callback: Setting state to {self.state.name}")
-		if self.state < State.TEAMS_PREMATCH:
+
+	async def player_enter_player_slot(self, player, **kwargs):
+		if self.state != State.TEAMS:
 			return
-		logger.debug(f"Match start callback: calculating teams. Online players: {len(self.instance.player_manager.online)}")
-		await self.assign_players()
-		self.state = State.TEAMS_ROUNDS	
-		await self.instance.chat(self.TEAMS_MESSAGE)
-		logger.debug(f"Match start callback: Setting state to {self.state.name}")
+		if player.login in self.blue:
+			team = 0
+		elif player.login in self.blue:
+			team = 1
+		else:
+			# todo should we force spectator here?
+			logger.debug(f"Player {player.nickname} wasn't found in teams list.")
+			return
+		await self.instance.gbx('ForcePlayerTeam', player.login, team)
+		logger.debug(f"Player {player.nickname} assigned to team {team}")
 
 	async def scores(self, players, section, **kwargs):
 		if section != 'EndMap':  # avoid multiple executions
 			return
-		if self.state == State.TEAMS_ROUNDS:
+		if self.state == State.TEAMS:
 			# todo send a message here on end of teams match maybe?
 			await self.instance.mode_manager.set_next_script(self.TIME_ATTACK_MODE)
 			self.state = State.STOPPED
@@ -125,20 +135,9 @@ class TMITApp(AppConfig):
 							time=player['best_race_time']) for player in players]
 		self.players.sort(key=lambda player: player['time'])
 		await self.instance.mode_manager.set_next_script(self.TEAMS_MODE)
-		self.state = State.TEAMS_PREMATCH
+		self.balance_teams()  # todo does this work?
+		self.state = State.TEAMS
 		logger.debug(f"Scores callback: Stored player times and move to {self.state.name}.")
-
-
-	async def assign_players(self):
-		self.balance_teams()
-		gbx_calls = []
-		for player in self.blue:
-			gbx_calls.append(self.instance.gbx('ForcePlayerTeam', player['login'], 0))
-		for player in self.red:
-			gbx_calls.append(self.instance.gbx('ForcePlayerTeam', player['login'], 1))
-		await self.instance.gbx.multicall(*gbx_calls)
-		logger.debug("Assigned players to their team.")
-
 
 	async def set_ta_duration(self):
 		at_seconds = self.instance.map_manager.current_map.time_author / 1000
@@ -171,6 +170,6 @@ class TMITApp(AppConfig):
 		for i, player in enumerate(playing_sorted):
 			i %= 4
 			if i == 0 or i == 3:
-				self.blue.append(player)
+				self.blue.append(player['login'])
 			else:
-				self.red.append(player)
+				self.red.append(player['login'])
