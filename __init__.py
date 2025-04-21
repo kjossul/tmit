@@ -57,7 +57,7 @@ class TMITApp(AppConfig):
 		   			description="Ends the gameplay sequence"),
 		)
 		# Register signals
-		self.context.signal.listen(mp_signals.player.player_enter_player_slot, self.player_enter_player_slot)
+		self.context.signals.listen(mp_signals.player.player_enter_player_slot, self.player_enter_player_slot)
 		self.context.signals.listen(mp_signals.flow.match_start, self.match_start)
 		self.context.signals.listen(tm_signals.scores, self.scores)
 
