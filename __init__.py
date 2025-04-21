@@ -41,13 +41,14 @@ class TMITApp(AppConfig):
 		self.init()
 		# Commands and permissions
 		await self.instance.permission_manager.register('start', 'Start TA + teams gamemode sequence', app=self, min_level=1)
-		await self.instance.permission_manager.register('balance', 'Balance teams', app=self, min_level=1)
-		await self.instance.permission_manager.register('info', 'Returns information for debugging purposes', app=self, min_level=1)
+		await self.instance.permission_manager.register('balance', 'Balance teams based on active players', app=self, min_level=1)
+		await self.instance.permission_manager.register('info', 'Returns information on the plugin for debugging purposes', app=self, min_level=1)
 		await self.instance.permission_manager.register('end', 'Ends the gamemode equence', app=self, min_level=1)
 		await self.instance.command_manager.register(
 			Command(command='start', namespace=[self.NAMESPACE], aliases=['s'], target=self.start, perms='tmit:start', admin=True,
 		   			description="Starts Time Attack mode, followed by Teams mode with balanced teams based on TA results"),
-					   # todo add arguments for 
+					   # todo maybe add uid argument to download the map with nadeo_add_maps plugin?
+					   # https://github.com/skybaks/pyplanet-nadeo_add_maps
 			Command(command='balance', namespace=[self.NAMESPACE], aliases=['b'], target=self.balance, perms='tmit:balance', admin=True,
 		   			description="Balances the teams based on previous TA results (useful if a player has to leave and teams need rebalancing)"),
 			Command(command='info', namespace=[self.NAMESPACE], aliases=['i'], target=self.info, perms='tmit:teams', admin=True,
@@ -71,6 +72,7 @@ class TMITApp(AppConfig):
 		if self.state != State.TEAMS:
 			await self.instance.chat(f"Match needs to be in teams mode in order to execute this command (current status: {self.state.name}).", player)
 			return
+		
 		self.balance_teams()
 		gbx_calls = []
 		for player in self.blue:
@@ -84,6 +86,7 @@ class TMITApp(AppConfig):
 		if self.state != State.TEAMS:
 			await self.instance.chat(f"Plugin status: {self.state}.", player)
 			return
+		
 		message = "Players: "
 		for i, player in enumerate(self.players):
 			if player['login'] in self.blue:
@@ -110,6 +113,7 @@ class TMITApp(AppConfig):
 	async def player_enter_player_slot(self, player, **kwargs):
 		if self.state != State.TEAMS:
 			return
+		
 		if player.login in self.blue:
 			team = 0
 		elif player.login in self.blue:
@@ -124,17 +128,23 @@ class TMITApp(AppConfig):
 	async def scores(self, players, section, **kwargs):
 		if section != 'EndMap':  # avoid multiple executions
 			return
+		
 		if self.state == State.TEAMS:
 			# todo send a message here on end of teams match maybe?
 			await self.instance.mode_manager.set_next_script(self.TIME_ATTACK_MODE)
 			self.state = State.STOPPED
+
 		if self.state != State.TIME_ATTACK:
 			return
+			
 		self.players = [dict(login=player['player'].login, 
 					   		nickname=player['player'].nickname, 
 							time=player['best_race_time']) for player in players]
 		self.players.sort(key=lambda player: player['time'])
+		# set teams mode on the same map
+		# todo does jukebox interfere with this?
 		await self.instance.mode_manager.set_next_script(self.TEAMS_MODE)
+		await self.instance.map_manager.set_next_map(self.instance.map_manager.current_map)
 		self.balance_teams()  # todo does this work?
 		self.state = State.TEAMS
 		logger.debug(f"Scores callback: Stored player times and move to {self.state.name}.")
@@ -151,7 +161,6 @@ class TMITApp(AppConfig):
 		self.players = []
 		self.blue = []
 		self.red = []
-		self.state = State.STOPPED
 
 	def balance_teams(self):
 		"""
