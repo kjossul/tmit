@@ -95,7 +95,7 @@ class TMITApp(AppConfig):
 				color = "f00"
 			else:
 				color = ""
-			message += f"{i:2d} {color}{player['nickname']}$z ({player['time'] / 1000}) "
+			message += f"{i + 1:2d} {color}{player['nickname']}$z ({player['time'] / 1000}) "
 		await self.instance.chat(message)
 
 	async def end(self, player, **kwargs):
@@ -109,6 +109,8 @@ class TMITApp(AppConfig):
 			await self.set_ta_duration()
 			await self.instance.chat(self.TA_MESSAGE)
 			logger.debug(f"Match start callback: Setting state to {self.state.name}")
+		elif self.state == State.TEAMS:
+			await self.instance.chat(self.TEAMS_MESSAGE)
 
 	async def player_enter_player_slot(self, player, **kwargs):
 		if self.state != State.TEAMS:
@@ -139,7 +141,8 @@ class TMITApp(AppConfig):
 			
 		self.players = [dict(login=player['player'].login, 
 					   		nickname=player['player'].nickname, 
-							time=player['best_race_time']) for player in players]
+							time=player['best_race_time']) for player in players
+							if player['best_race_time'] > 0]
 		self.players.sort(key=lambda player: player['time'])
 		# set teams mode on the same map
 		# todo does jukebox interfere with this?
