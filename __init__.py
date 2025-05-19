@@ -51,7 +51,7 @@ class TMITApp(AppConfig):
 					   # https://github.com/skybaks/pyplanet-nadeo_add_maps
 			Command(command='balance', namespace=[self.NAMESPACE], aliases=['b'], target=self.balance, perms='tmit:balance', admin=True,
 		   			description="Balances the teams based on previous TA results (useful if a player has to leave and teams need rebalancing)"),
-			Command(command='info', namespace=[self.NAMESPACE], aliases=['i'], target=self.info, perms='tmit:teams', admin=True,
+			Command(command='info', namespace=[self.NAMESPACE], aliases=['i'], target=self.info, perms='tmit:info', admin=True,
 		   			description="Print app info for debug purposes"),
 			Command(command='end', namespace=[self.NAMESPACE], aliases=['e'], target=self.end, perms='tmit:end', admin=True,
 		   			description="Ends the gameplay sequence"),
