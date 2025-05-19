@@ -92,7 +92,7 @@ class TMITApp(AppConfig):
 			if player['login'] in self.blue:
 				color = "$00f"
 			elif player['login'] in self.red:
-				color = "f00"
+				color = "$f00"
 			else:
 				color = ""
 			message += f"{i + 1:2d} {color}{player['nickname']}$z ({player['time'] / 1000}) "
